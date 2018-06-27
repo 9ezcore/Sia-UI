@@ -6,11 +6,21 @@ import * as actions from '../actions/files.js'
 import * as constants from '../constants/files.js'
 import { List } from 'immutable'
 import BigNumber from 'bignumber.js'
-import { ls, uploadDirectory, sendError, allowancePeriod, readableFilesize, siadCall, readdirRecursive, parseDownloads, parseUploads } from './helpers.js'
+import {
+	ls,
+	uploadDirectory,
+	sendError,
+	allowancePeriod,
+	readableFilesize,
+	siadCall,
+	readdirRecursive,
+	parseDownloads,
+	parseUploads,
+} from './helpers.js'
 
 // Query siad for the state of the wallet.
 // dispatch `unlocked` in receiveWalletLockstate
-function* getWalletLockstateSaga() {
+function * getWalletLockstateSaga() {
 	try {
 		const response = yield siadCall('/wallet')
 		yield put(actions.receiveWalletLockstate(response.unlocked))
@@ -20,7 +30,7 @@ function* getWalletLockstateSaga() {
 }
 
 // Query siad for the sync state of the wallet.
-function* getWalletSyncstateSaga() {
+function * getWalletSyncstateSaga() {
 	try {
 		const response = yield siadCall('/consensus')
 		yield put(actions.setWalletSyncstate(response.synced))
@@ -30,7 +40,7 @@ function* getWalletSyncstateSaga() {
 }
 
 // Query siad for the user's files.
-function* getFilesSaga() {
+function * getFilesSaga() {
 	try {
 		const response = yield siadCall('/renter/files')
 		const files = List(response.files)
@@ -40,31 +50,51 @@ function* getFilesSaga() {
 	}
 }
 
-function* getStorageEstimateSaga(action) {
+function * getStorageEstimateSaga(action) {
 	try {
 		const response = yield siadCall('/renter/prices')
 		if (response.storageterabytemonth === '0') {
 			yield put(actions.setStorageEstimate('No Hosts'))
 			return
 		}
-		const estimate = new BigNumber(SiaAPI.siacoinsToHastings(action.funds)).dividedBy(response.storageterabytemonth).times(1e12)
+		const estimate = new BigNumber(SiaAPI.siacoinsToHastings(action.funds))
+			.dividedBy(response.storageterabytemonth)
+			.times(1e12)
 
-		yield put(actions.setStorageEstimate('~' + readableFilesize(estimate.toPrecision(1))))
-		yield put(actions.setFeeEstimate(SiaAPI.hastingsToSiacoins(response.formcontracts).toString()))
+		yield put(
+			actions.setStorageEstimate(
+				'~' + readableFilesize(estimate.toPrecision(1))
+			)
+		)
+		yield put(
+			actions.setFeeEstimate(
+				SiaAPI.hastingsToSiacoins(response.formcontracts).toString()
+			)
+		)
 	} catch (e) {
 		console.error(e)
 	}
 }
 
 // Get the renter's current allowance and spending.
-function* getAllowanceSaga() {
+function * getAllowanceSaga() {
 	try {
 		const response = yield siadCall('/renter')
-		const allowance = SiaAPI.hastingsToSiacoins(response.settings.allowance.funds)
-		const downloadspending = SiaAPI.hastingsToSiacoins(response.financialmetrics.downloadspending)
-		const uploadspending = SiaAPI.hastingsToSiacoins(response.financialmetrics.uploadspending)
-		const contractspending = SiaAPI.hastingsToSiacoins(response.financialmetrics.contractspending)
-		const storagespending = SiaAPI.hastingsToSiacoins(response.financialmetrics.storagespending)
+		const allowance = SiaAPI.hastingsToSiacoins(
+			response.settings.allowance.funds
+		)
+		const downloadspending = SiaAPI.hastingsToSiacoins(
+			response.financialmetrics.downloadspending
+		)
+		const uploadspending = SiaAPI.hastingsToSiacoins(
+			response.financialmetrics.uploadspending
+		)
+		const contractspending = SiaAPI.hastingsToSiacoins(
+			response.financialmetrics.contractspending
+		)
+		const storagespending = SiaAPI.hastingsToSiacoins(
+			response.financialmetrics.storagespending
+		)
 		const unspent = SiaAPI.hastingsToSiacoins(response.financialmetrics.unspent)
 
 		const consensus = yield siadCall('/consensus')
@@ -76,14 +106,23 @@ function* getAllowanceSaga() {
 		})()
 
 		yield put(actions.receiveAllowance(allowance.round(0).toNumber()))
-		yield put(actions.receiveSpending(downloadspending.round(2).toNumber(), uploadspending.round(2).toNumber(), storagespending.round(2).toNumber(), contractspending.round(2).toNumber(), unspent.round(2).toNumber(), renewheight))
+		yield put(
+			actions.receiveSpending(
+				downloadspending.round(2).toNumber(),
+				uploadspending.round(2).toNumber(),
+				storagespending.round(2).toNumber(),
+				contractspending.round(2).toNumber(),
+				unspent.round(2).toNumber(),
+				renewheight
+			)
+		)
 	} catch (e) {
 		console.error('error getting allowance: ' + e.toString())
 	}
 }
 
 // Set the user's renter allowance.
-function* setAllowanceSaga(action) {
+function * setAllowanceSaga(action) {
 	try {
 		const newAllowance = SiaAPI.siacoinsToHastings(action.funds)
 		yield put(actions.closeAllowanceDialog())
@@ -105,10 +144,14 @@ function* setAllowanceSaga(action) {
 }
 
 // Query Siad for the current wallet balance.
-function* getWalletBalanceSaga() {
+function * getWalletBalanceSaga() {
 	try {
 		const response = yield siadCall('/wallet')
-		const confirmedBalance = SiaAPI.hastingsToSiacoins(response.confirmedsiacoinbalance).round(2).toString()
+		const confirmedBalance = SiaAPI.hastingsToSiacoins(
+			response.confirmedsiacoinbalance
+		)
+			.round(2)
+			.toString()
 		yield put(actions.receiveWalletBalance(confirmedBalance))
 	} catch (e) {
 		console.error('error fetching wallet balance: ' + e.toString())
@@ -119,7 +162,7 @@ function* getWalletBalanceSaga() {
 // action.siapath: the working directory to upload the file to
 // action.source: the path to the file to upload.
 // The full siapath is computed as Path.join(action.siapath, Path.basename(action.source))
-function* uploadFileSaga(action) {
+function * uploadFileSaga(action) {
 	try {
 		const filename = Path.basename(action.source)
 		const destpath = Path.posix.join(action.siapath, filename)
@@ -139,7 +182,7 @@ function* uploadFileSaga(action) {
 // uploadFolderSaga uploads a folder to the Sia network.
 // action.source: the source path of the folder
 // action.siapath: the working directory to upload the folder inside
-function *uploadFolderSaga(action) {
+function * uploadFolderSaga(action) {
 	try {
 		const files = readdirRecursive(action.source)
 		const uploads = uploadDirectory(action.source, files, action.siapath)
@@ -151,7 +194,7 @@ function *uploadFolderSaga(action) {
 	}
 }
 
-function* downloadFileSaga(action) {
+function * downloadFileSaga(action) {
 	try {
 		if (action.file.type === 'file') {
 			yield siadCall({
@@ -169,7 +212,9 @@ function* downloadFileSaga(action) {
 			const siafiles = ls(List(response.files), action.file.siapath)
 			for (const siafile in siafiles.toArray()) {
 				const file = siafiles.get(siafile)
-				yield put(actions.downloadFile(file, Path.join(action.downloadpath, file.name)))
+				yield put(
+					actions.downloadFile(file, Path.join(action.downloadpath, file.name))
+				)
 				yield new Promise((resolve) => setTimeout(resolve, 300))
 			}
 		}
@@ -178,7 +223,7 @@ function* downloadFileSaga(action) {
 	}
 }
 
-function* getDownloadsSaga() {
+function * getDownloadsSaga() {
 	try {
 		const response = yield siadCall('/renter/downloads')
 		const downloads = parseDownloads(response.downloads)
@@ -188,7 +233,7 @@ function* getDownloadsSaga() {
 	}
 }
 
-function* getUploadsSaga() {
+function * getUploadsSaga() {
 	try {
 		const response = yield siadCall('/renter/files')
 		const uploads = parseUploads(response.files)
@@ -199,7 +244,7 @@ function* getUploadsSaga() {
 }
 
 // deleteFileSaga handles DELETE_FILE actions, which can include directories.
-function* deleteFileSaga(action) {
+function * deleteFileSaga(action) {
 	try {
 		if (action.file.siaUIFolder) {
 			yield put(actions.deleteSiaUIFolder(action.file.siapath))
@@ -223,7 +268,7 @@ function* deleteFileSaga(action) {
 	}
 }
 
-function* getContractCountSaga() {
+function * getContractCountSaga() {
 	try {
 		const response = yield siadCall('/renter/contracts')
 		yield put(actions.setContractCount(response.contracts.length))
@@ -232,10 +277,12 @@ function* getContractCountSaga() {
 	}
 }
 
-function* renameFileSaga(action) {
+function * renameFileSaga(action) {
 	try {
 		if (action.file.siaUIFolder) {
-			yield put(actions.renameSiaUIFolder(action.file.siapath, action.newsiapath))
+			yield put(
+				actions.renameSiaUIFolder(action.file.siapath, action.newsiapath)
+			)
 		} else if (action.file.type === 'file') {
 			yield siadCall({
 				url: '/renter/rename/' + encodeURI(action.file.siapath),
@@ -251,7 +298,10 @@ function* renameFileSaga(action) {
 			const siafiles = ls(List(response.files), directorypath)
 			for (const i in siafiles.toArray()) {
 				const file = siafiles.get(i)
-				const newfilepath = Path.posix.join(action.newsiapath, file.siapath.split(directorypath)[1])
+				const newfilepath = Path.posix.join(
+					action.newsiapath,
+					file.siapath.split(directorypath)[1]
+				)
 				yield put(actions.renameFile(file, newfilepath))
 			}
 		}
@@ -261,7 +311,7 @@ function* renameFileSaga(action) {
 	}
 }
 
-export function* dataFetcher() {
+export function * dataFetcher() {
 	while (true) {
 		let tasks = []
 		tasks = tasks.concat(yield fork(getDownloadsSaga))
@@ -280,48 +330,48 @@ export function* dataFetcher() {
 		})
 	}
 }
-export function* watchSetAllowance() {
-	yield *takeEvery(constants.SET_ALLOWANCE, setAllowanceSaga)
+export function * watchSetAllowance() {
+	yield * takeEvery(constants.SET_ALLOWANCE, setAllowanceSaga)
 }
-export function* watchGetAllowance() {
-	yield *takeEvery(constants.GET_ALLOWANCE, getAllowanceSaga)
+export function * watchGetAllowance() {
+	yield * takeEvery(constants.GET_ALLOWANCE, getAllowanceSaga)
 }
-export function* watchGetDownloads() {
-	yield *takeEvery(constants.GET_DOWNLOADS, getDownloadsSaga)
+export function * watchGetDownloads() {
+	yield * takeEvery(constants.GET_DOWNLOADS, getDownloadsSaga)
 }
-export function* watchGetUploads() {
-	yield *takeEvery(constants.GET_UPLOADS, getUploadsSaga)
+export function * watchGetUploads() {
+	yield * takeEvery(constants.GET_UPLOADS, getUploadsSaga)
 }
-export function* watchGetWalletLockstate() {
-	yield *takeEvery(constants.GET_WALLET_LOCKSTATE, getWalletLockstateSaga)
+export function * watchGetWalletLockstate() {
+	yield * takeEvery(constants.GET_WALLET_LOCKSTATE, getWalletLockstateSaga)
 }
-export function* watchGetFiles() {
-	yield *takeEvery(constants.GET_FILES, getFilesSaga)
+export function * watchGetFiles() {
+	yield * takeEvery(constants.GET_FILES, getFilesSaga)
 }
-export function* watchDeleteFile() {
-	yield *takeEvery(constants.DELETE_FILE, deleteFileSaga)
+export function * watchDeleteFile() {
+	yield * takeEvery(constants.DELETE_FILE, deleteFileSaga)
 }
-export function* watchGetWalletBalance() {
-	yield *takeEvery(constants.GET_WALLET_BALANCE, getWalletBalanceSaga)
+export function * watchGetWalletBalance() {
+	yield * takeEvery(constants.GET_WALLET_BALANCE, getWalletBalanceSaga)
 }
-export function* watchUploadFolder() {
-	yield *takeEvery(constants.UPLOAD_FOLDER, uploadFolderSaga)
+export function * watchUploadFolder() {
+	yield * takeEvery(constants.UPLOAD_FOLDER, uploadFolderSaga)
 }
-export function* watchGetContractCount() {
-	yield *takeEvery(constants.GET_CONTRACT_COUNT, getContractCountSaga)
+export function * watchGetContractCount() {
+	yield * takeEvery(constants.GET_CONTRACT_COUNT, getContractCountSaga)
 }
-export function* watchUploadFile() {
-	yield *takeEvery(constants.UPLOAD_FILE, uploadFileSaga)
+export function * watchUploadFile() {
+	yield * takeEvery(constants.UPLOAD_FILE, uploadFileSaga)
 }
-export function* watchDownloadFile() {
-	yield *takeEvery(constants.DOWNLOAD_FILE, downloadFileSaga)
+export function * watchDownloadFile() {
+	yield * takeEvery(constants.DOWNLOAD_FILE, downloadFileSaga)
 }
-export function* watchRenameFile() {
-	yield *takeEvery(constants.RENAME_FILE, renameFileSaga)
+export function * watchRenameFile() {
+	yield * takeEvery(constants.RENAME_FILE, renameFileSaga)
 }
-export function* watchGetStorageEstimate() {
-	yield *takeEvery(constants.GET_STORAGE_ESTIMATE, getStorageEstimateSaga)
+export function * watchGetStorageEstimate() {
+	yield * takeEvery(constants.GET_STORAGE_ESTIMATE, getStorageEstimateSaga)
 }
-export function* watchGetWalletSyncstate() {
-	yield *takeEvery(constants.GET_WALLET_SYNCSTATE, getWalletSyncstateSaga)
+export function * watchGetWalletSyncstate() {
+	yield * takeEvery(constants.GET_WALLET_SYNCSTATE, getWalletSyncstateSaga)
 }
